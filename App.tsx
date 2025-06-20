@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { TextInput } from 'react-native';
+
 import {
   View,
   Text,
@@ -184,9 +186,9 @@ export default function App() {
             style={styles.picker}
           >
             <Picker.Item label="-- Odaberi --" value={null} />
-            {users.map((user) => (
-              <Picker.Item key={user.id} label={user.username} value={user.id} />
-            ))}
+            {users.map((user) =>
+              user ? <Picker.Item key={user.id} label={user.username} value={user.id} /> : null
+            )}
           </Picker>
         </View>
         <Button title="Potvrdi" onPress={handleConfirmUser} />
@@ -199,11 +201,11 @@ export default function App() {
       <View style={styles.centered}>
         <Text style={styles.hello}>Zdravo, {selectedUser.username}!</Text>
 
-        {!showConfirmModal && (
+        {!showConfirmModal ? (
           <Button title="SCAN" onPress={openScanner} />
-        )}
+        ) : null}
 
-        {showConfirmModal && scannedProduct && (
+        {showConfirmModal && scannedProduct ? (
           <View style={styles.modalOverlay}>
             <View style={styles.modalContainerLarge}>
               <Text style={styles.modalTitle}>Ažuriraj proizvod</Text>
@@ -214,28 +216,54 @@ export default function App() {
 
               <Text style={[styles.modalText, { marginTop: 20 }]}>Nova količina:</Text>
               <View style={styles.quantityRow}>
-                <Pressable style={styles.bigButton} onPress={() => newQuantity !== null && setNewQuantity(Math.max(0, newQuantity - 1))}>
+                <Pressable
+                  style={styles.bigButton}
+                  onPress={() => newQuantity !== null && setNewQuantity(Math.max(0, newQuantity - 1))}
+                >
                   <Text style={styles.bigButtonText}>−</Text>
                 </Pressable>
-                <Text style={styles.newQuantityText}>{newQuantity}</Text>
-                <Pressable style={styles.bigButton} onPress={() => newQuantity !== null && setNewQuantity(newQuantity + 1)}>
+                <TextInput
+                  style={styles.quantityInput}
+                  keyboardType="number-pad"
+                  value={newQuantity !== null && newQuantity !== undefined ? newQuantity.toString() : ''}
+                  onChangeText={(text) => {
+                    const parsed = parseInt(text, 10);
+                    if (!isNaN(parsed) && parsed >= 0) {
+                      setNewQuantity(parsed);
+                    } else if (text === '') {
+                      setNewQuantity(0);
+                    }
+                  }}
+                />
+                <Pressable
+                  style={styles.bigButton}
+                  onPress={() => newQuantity !== null && setNewQuantity(newQuantity + 1)}
+                >
                   <Text style={styles.bigButtonText}>+</Text>
                 </Pressable>
               </View>
 
-              {!confirming && (
+              {!confirming ? (
                 <View style={{ marginTop: 30 }}>
                   <Button title="Potvrdi" onPress={() => setConfirming(true)} />
                   <View style={{ height: 10 }} />
                   <Button title="Otkaži" onPress={() => setShowConfirmModal(false)} color="gray" />
                 </View>
-              )}
+              ) : null}
 
-              {confirming && (
+              {confirming ? (
                 <View style={{ marginTop: 30, alignItems: 'center' }}>
                   <Text style={[styles.confirmText, { textAlign: 'center' }]}>DA LI STE SIGURNI?</Text>
                   <Text style={[styles.modalText, { textAlign: 'center' }]}>Nova količina: {newQuantity}</Text>
-                  <View style={{ flexDirection: 'row', marginTop: 15, justifyContent: 'center', alignItems: 'center', width: '60%' }}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      marginTop: 15,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      width: '60%',
+                    }}
+                  >
                     <Pressable
                       style={[styles.confirmButton, { backgroundColor: '#4CAF50', flex: 1, marginRight: 5 }]}
                       onPress={handleUpdateProduct}
@@ -250,10 +278,10 @@ export default function App() {
                     </Pressable>
                   </View>
                 </View>
-              )}
+              ) : null}
             </View>
           </View>
-        )}
+        ) : null}
       </View>
     );
   }
@@ -380,5 +408,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: 'white',
     fontWeight: 'bold',
+  },
+  quantityInput: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginHorizontal: 20,
+    borderBottomWidth: 2,
+    borderColor: '#2196F3',
+    textAlign: 'center',
+    minWidth: 70,
+    paddingVertical: 5,
   },
 });
