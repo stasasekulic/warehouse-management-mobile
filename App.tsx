@@ -1,5 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Button, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+  Button,
+  Alert,
+  Pressable
+} from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { CameraView, Camera } from 'expo-camera';
 
@@ -11,6 +19,15 @@ interface User {
   createdAt: string;
 }
 
+interface Product {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  stockQuantity: number;
+  _endpoint?: string;
+}
+
 export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -19,10 +36,15 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [scanned, setScanned] = useState(false);
+  const [screen, setScreen] = useState<'userSelect' | 'scanButton'>('userSelect');
   const [showScanner, setShowScanner] = useState(false);
+  const [scannedProduct, setScannedProduct] = useState<Product | null>(null);
+  const [newQuantity, setNewQuantity] = useState<number | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
-    fetch('http://192.168.0.16:8080/api/users') // promeni u localhost ako nisi na emulatoru
+    fetch('http://192.168.0.16:8080/api/users')
       .then((res) => res.json())
       .then((data) => {
         setUsers(data);
@@ -44,43 +66,25 @@ export default function App() {
     getCameraPermissions();
   }, []);
 
-  const handleConfirm = () => {
+  const handleConfirmUser = () => {
     const user = users.find((u) => u.id === selectedUserId);
     if (user) {
       setSelectedUser(user);
+      setScreen('scanButton');
     } else {
-      Alert.alert("Greška", "Niste izabrali korisnika.");
-    }
-  };
-
-  const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
-    setScanned(true);
-    setShowScanner(false);
-
-    // Try to find user by QR code data (assuming QR contains user ID or username)
-    const userById = users.find((u) => u.id.toString() === data);
-    const userByUsername = users.find((u) => u.username === data);
-
-    const foundUser = userById || userByUsername;
-
-    if (foundUser) {
-      setSelectedUser(foundUser);
-      Alert.alert("Uspeh", `QR kod skeniran! Korisnik: ${foundUser.username}`);
-    } else {
-      Alert.alert("Greška", `QR kod skeniran ali korisnik nije pronađen.\nSkenirani podatak: ${data}`);
+      Alert.alert('Greška', 'Niste izabrali korisnika.');
     }
   };
 
   const openScanner = () => {
     if (hasPermission === null) {
-      Alert.alert("Greška", "Zahtevam dozvolu za kameru...");
+      Alert.alert('Greška', 'Zahtevam dozvolu za kameru...');
       return;
     }
     if (hasPermission === false) {
-      Alert.alert("Greška", "Nema dozvole za pristup kameri");
+      Alert.alert('Greška', 'Nema dozvole za pristup kameri');
       return;
     }
-
     setScanned(false);
     setShowScanner(true);
   };
@@ -88,6 +92,53 @@ export default function App() {
   const closeScanner = () => {
     setShowScanner(false);
     setScanned(false);
+  };
+
+  const handleBarCodeScanned = async ({ data }: { type: string; data: string }) => {
+    setScanned(true);
+    setShowScanner(false);
+
+    try {
+      const normalizedUrl = data.replace('https://', 'http://');
+      const response = await fetch(normalizedUrl);
+      if (!response.ok) throw new Error('Proizvod nije pronađen');
+
+      const product: Product = await response.json();
+      setScannedProduct({ ...product, _endpoint: normalizedUrl });
+      setNewQuantity(product.stockQuantity);
+      setShowConfirmModal(true);
+    } catch (error) {
+      Alert.alert('Greška', 'QR kod nije validan ili proizvod nije pronađen.');
+    }
+  };
+
+  const handleUpdateProduct = async () => {
+    if (scannedProduct && newQuantity !== null && newQuantity >= 0) {
+      const updatedProduct = { ...scannedProduct, stockQuantity: newQuantity };
+
+      try {
+        const response = await fetch(scannedProduct._endpoint!, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Id': selectedUser?.id.toString() ?? '1'
+          },
+          body: JSON.stringify(updatedProduct)
+        });
+
+        if (!response.ok) throw new Error('Neuspešno ažuriranje');
+
+        Alert.alert('Uspeh', 'Količina uspešno ažurirana');
+      } catch (err) {
+        Alert.alert('Greška', 'Došlo je do greške prilikom ažuriranja');
+      } finally {
+        setConfirming(false);
+        setShowConfirmModal(false);
+        setScannedProduct(null);
+      }
+    } else {
+      Alert.alert('Greška', 'Količina mora biti 0 ili veća');
+    }
   };
 
   if (loading) {
@@ -117,49 +168,97 @@ export default function App() {
         <View style={styles.scannerOverlay}>
           <Text style={styles.scannerText}>Skeniraj QR kod</Text>
           <Button title="Otkaži" onPress={closeScanner} />
-          {scanned && (
-            <Button title="Skeniraj ponovo" onPress={() => setScanned(false)} />
-          )}
         </View>
       </View>
     );
   }
 
-  if (selectedUser) {
+  if (screen === 'userSelect') {
     return (
       <View style={styles.centered}>
-        <Text style={styles.hello}>ZDRAVO, {selectedUser.username}!</Text>
-        <Button
-          title="Nazad"
-          onPress={() => setSelectedUser(null)}
-          style={styles.backButton}
-        />
+        <Text style={styles.title}>Izaberi korisnika</Text>
+        <View style={styles.pickerContainer}>
+          <Picker
+            selectedValue={selectedUserId}
+            onValueChange={(itemValue) => setSelectedUserId(itemValue)}
+            style={styles.picker}
+          >
+            <Picker.Item label="-- Odaberi --" value={null} />
+            {users.map((user) => (
+              <Picker.Item key={user.id} label={user.username} value={user.id} />
+            ))}
+          </Picker>
+        </View>
+        <Button title="Potvrdi" onPress={handleConfirmUser} />
       </View>
     );
   }
 
-  return (
-    <View style={styles.centered}>
-      <Text style={styles.title}>Izaberi korisnika</Text>
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={selectedUserId}
-          onValueChange={(itemValue) => setSelectedUserId(itemValue)}
-          style={styles.picker}
-        >
-          <Picker.Item label="-- Odaberi --" value={null} />
-          {users.map((user) => (
-            <Picker.Item key={user.id} label={user.username} value={user.id} />
-          ))}
-        </Picker>
+  if (screen === 'scanButton' && selectedUser) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.hello}>Zdravo, {selectedUser.username}!</Text>
+
+        {!showConfirmModal && (
+          <Button title="SCAN" onPress={openScanner} />
+        )}
+
+        {showConfirmModal && scannedProduct && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainerLarge}>
+              <Text style={styles.modalTitle}>Ažuriraj proizvod</Text>
+              <Text style={styles.modalText}>Ime: {scannedProduct.name}</Text>
+              <Text style={styles.modalText}>Opis: {scannedProduct.description}</Text>
+              <Text style={styles.modalText}>Cena: {scannedProduct.price} RSD</Text>
+              <Text style={styles.modalText}>Trenutna količina: {scannedProduct.stockQuantity}</Text>
+
+              <Text style={[styles.modalText, { marginTop: 20 }]}>Nova količina:</Text>
+              <View style={styles.quantityRow}>
+                <Pressable style={styles.bigButton} onPress={() => newQuantity !== null && setNewQuantity(Math.max(0, newQuantity - 1))}>
+                  <Text style={styles.bigButtonText}>−</Text>
+                </Pressable>
+                <Text style={styles.newQuantityText}>{newQuantity}</Text>
+                <Pressable style={styles.bigButton} onPress={() => newQuantity !== null && setNewQuantity(newQuantity + 1)}>
+                  <Text style={styles.bigButtonText}>+</Text>
+                </Pressable>
+              </View>
+
+              {!confirming && (
+                <View style={{ marginTop: 30 }}>
+                  <Button title="Potvrdi" onPress={() => setConfirming(true)} />
+                  <View style={{ height: 10 }} />
+                  <Button title="Otkaži" onPress={() => setShowConfirmModal(false)} color="gray" />
+                </View>
+              )}
+
+              {confirming && (
+                <View style={{ marginTop: 30, alignItems: 'center' }}>
+                  <Text style={[styles.confirmText, { textAlign: 'center' }]}>DA LI STE SIGURNI?</Text>
+                  <Text style={[styles.modalText, { textAlign: 'center' }]}>Nova količina: {newQuantity}</Text>
+                  <View style={{ flexDirection: 'row', marginTop: 15, justifyContent: 'center', alignItems: 'center', width: '60%' }}>
+                    <Pressable
+                      style={[styles.confirmButton, { backgroundColor: '#4CAF50', flex: 1, marginRight: 5 }]}
+                      onPress={handleUpdateProduct}
+                    >
+                      <Text style={styles.confirmButtonText}>DA</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.confirmButton, { backgroundColor: '#f44336', flex: 1, marginLeft: 5 }]}
+                      onPress={() => setConfirming(false)}
+                    >
+                      <Text style={styles.confirmButtonText}>NE</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
       </View>
-      <View style={styles.buttonContainer}>
-        <Button title="Potvrdi" onPress={handleConfirm} />
-        <View style={styles.buttonSpacer} />
-        <Button title="SCAN" onPress={openScanner} />
-      </View>
-    </View>
-  );
+    );
+  }
+
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -186,23 +285,11 @@ const styles = StyleSheet.create({
   picker: {
     width: '100%',
     height: 60,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
   },
   hello: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 20,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  buttonSpacer: {
-    width: 20,
-  },
-  backButton: {
-    marginTop: 20,
   },
   scannerContainer: {
     flex: 1,
@@ -224,5 +311,74 @@ const styles = StyleSheet.create({
     color: 'white',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainerLarge: {
+    backgroundColor: 'white',
+    padding: 30,
+    borderRadius: 16,
+    width: '90%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  modalText: {
+    fontSize: 18,
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+  quantityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  bigButton: {
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 30,
+    paddingVertical: 20,
+    borderRadius: 12,
+  },
+  bigButtonText: {
+    color: 'white',
+    fontSize: 40,
+    fontWeight: 'bold',
+  },
+  newQuantityText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginHorizontal: 30,
+  },
+  confirmText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#444',
+  },
+  confirmButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 70,
+    height: 70,
+  },
+  confirmButtonText: {
+    fontSize: 18,
+    color: 'white',
+    fontWeight: 'bold',
   },
 });
